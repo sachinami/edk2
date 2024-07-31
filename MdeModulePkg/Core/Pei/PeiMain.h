@@ -27,6 +27,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Ppi/SecHobData.h>
 #include <Ppi/PeiCoreFvLocation.h>
 #include <Ppi/MigrateTempRam.h>
+#include <Ppi/DelayedDispatch.h>
 #include <Library/DebugLib.h>
 #include <Library/PeiCoreEntryPoint.h>
 #include <Library/BaseLib.h>
@@ -2028,4 +2029,47 @@ PeiReinitializeFv (
   IN  PEI_CORE_INSTANCE  *PrivateData
   );
 
+/**
+Register a callback to be called after a minimum delay has occurred.
+
+This service is the single member function of the EFI_DELAYED_DISPATCH_PPI
+
+  @param This           Pointer to the EFI_DELAYED_DISPATCH_PPI instance
+  @param Function       Function to call back
+  @param Context        Context data
+  @param UniqueId       UniqueId
+  @param Delay          Delay interval
+
+  @retval EFI_SUCCESS               Function successfully loaded
+  @retval EFI_INVALID_PARAMETER     One of the Arguments is not supported
+  @retval EFI_OUT_OF_RESOURCES      No more entries
+
+**/
+EFI_STATUS
+EFIAPI
+PeiDelayedDispatchRegister (
+    IN  EFI_DELAYED_DISPATCH_PPI      *This,
+    IN  EFI_DELAYED_DISPATCH_FUNCTION  Function,
+    IN  UINT64                         Context,
+    IN  EFI_GUID                      *UniqueId,
+    IN  UINT32                         Delay
+);
+
+/**
+Function invoked by a PEIM to wait until all specified UniqueId events have been dispatched. The other events
+will continue to dispatch while this process is being paused
+
+  @param This           Pointer to the EFI_DELAYED_DISPATCH_PPI instance
+  @param UniqueId       Delayed dispatch request ID the caller will wait on
+
+  @retval EFI_SUCCESS               Function successfully invoked
+  @retval EFI_INVALID_PARAMETER     One of the Arguments is not supported
+
+**/
+EFI_STATUS
+EFIAPI
+PeiDelayedDispatchWaitOnUniqueId (
+    IN EFI_DELAYED_DISPATCH_PPI       *This,
+    IN EFI_GUID                       UniqueId
+);
 #endif

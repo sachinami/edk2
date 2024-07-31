@@ -102,6 +102,7 @@
   gEfiSecHobDataPpiGuid                         ## SOMETIMES_CONSUMES
   gEfiPeiCoreFvLocationPpiGuid                  ## SOMETIMES_CONSUMES
   gEdkiiPeiMigrateTempRamPpiGuid                ## PRODUCES
+gEfiPeiDelayedDispatchPpiGuid                   ## PRODUCES
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdPeiCoreMaxPeiStackSize                  ## CONSUMES
