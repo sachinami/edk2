@@ -10,6 +10,17 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #define __TIMER_LIB__
 
 /**
+  Converts elapsed ticks of performance counter to time in microseconds.
+
+  This macro converts the elapsed ticks of running performance counter to
+  time value in unit of microseconds.
+
+  @return The elapsed time in nanoseconds.
+
+**/
+#define GET_TIME_IN_US()  ((UINT32)DivU64x32(GetTimeInNanoSecond(GetPerformanceCounter ()), 1000))
+
+/**
   Stalls the CPU for at least the given number of microseconds.
 
   Stalls the CPU for the number of microseconds specified by MicroSeconds.
