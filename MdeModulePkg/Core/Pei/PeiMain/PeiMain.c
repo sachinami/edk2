@@ -282,6 +282,9 @@ PeiCore (
         OldCoreData->TempFileHandles = (EFI_PEI_FILE_HANDLE *)((UINT8 *)OldCoreData->TempFileHandles - OldCoreData->HeapOffset);
       }
 
+      // Force relocating the Delayed Dispatch table
+      OldCoreData->DelayedDispatchList = NULL;
+
       //
       // Fixup for PeiService's address
       //

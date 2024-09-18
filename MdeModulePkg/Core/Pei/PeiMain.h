@@ -27,6 +27,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Ppi/SecHobData.h>
 #include <Ppi/PeiCoreFvLocation.h>
 #include <Ppi/MigrateTempRam.h>
+#include <Ppi/DelayedDispatch.h>
 #include <Library/DebugLib.h>
 #include <Library/PeiCoreEntryPoint.h>
 #include <Library/BaseLib.h>
@@ -39,6 +40,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/BaseMemoryLib.h>
 #include <Library/CacheMaintenanceLib.h>
 #include <Library/PcdLib.h>
+#include <Library/TimerLib.h>
 #include <IndustryStandard/PeImage.h>
 #include <Library/PeiServicesTablePointerLib.h>
 #include <Library/MemoryAllocationLib.h>
@@ -46,6 +48,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/FirmwareFileSystem3.h>
 #include <Guid/AprioriFileName.h>
 #include <Guid/MigratedFvInfo.h>
+#include <Guid/ZeroGuid.h>
 
 ///
 /// It is an FFS type extension used for PeiFindFileEx. It indicates current
@@ -208,6 +211,22 @@ EFI_STATUS
 
 #define PEI_CORE_HANDLE_SIGNATURE  SIGNATURE_32('P','e','i','C')
 
+#pragma pack (push, 1)
+
+typedef struct {
+  EFI_GUID                         DelayedGroupId;
+  UINT64                           Context;
+  EFI_DELAYED_DISPATCH_FUNCTION    Function;
+  UINT32                           DispatchTime;
+  UINT32                           usDelay;
+} DELAYED_DISPATCH_ENTRY;
+
+typedef struct {
+  UINT32                    Count;
+  DELAYED_DISPATCH_ENTRY    Entry[1];     // Actual size based on PCD PcdDelayedDispatchMaxEntries;
+} DELAYED_DISPATCH_LIST;
+
+#pragma pack (pop)
 ///
 /// Pei Core private data structure instance
 ///
@@ -308,6 +327,7 @@ struct _PEI_CORE_INSTANCE {
   // Those Memory Range will be migrated into physical memory.
   //
   HOLE_MEMORY_DATA                  HoleData[HOLE_MAX_NUMBER];
+  DELAYED_DISPATCH_LIST             *DelayedDispatchList;
 };
 
 ///
@@ -2026,6 +2046,83 @@ extern EFI_PEI_PCI_CFG2_PPI  gPeiDefaultPciCfg2Ppi;
 VOID
 PeiReinitializeFv (
   IN  PEI_CORE_INSTANCE  *PrivateData
+  );
+
+/**
+ * DelayedDispatchDispatcher
+ *
+ * Delayed Dispach cycle (ie one pass) through each entry, calling functions when their
+ * time has expired.  When DelayedGroupId is specified, if there are any of the specified entries
+ * in the dispatch queue during dispatch, repeat the DelayedDispatch cycle.
+ *
+ * @param DelayedDispatchList  Pointer to dispatch list
+ * @param OPTIONAL             DelayedGroupId used to ensure particular time is met.
+ *
+ * @return BOOLEAN
+ */
+BOOLEAN
+DelayedDispatchDispatcher (
+  IN DELAYED_DISPATCH_LIST  *DelayedDispatchList,
+  IN EFI_GUID               DelayedGroupId           OPTIONAL
+  );
+
+/**
+ * Delayed Dispatch Notify function for EndofPei
+ *
+ * @return EFI_STATUS EFIAPI
+ */
+EFI_STATUS
+EFIAPI
+PeiDelayedDispatchOnEndOfPei (
+  IN EFI_PEI_SERVICES           **PeiServices,
+  IN EFI_PEI_NOTIFY_DESCRIPTOR  *NotifyDesc,
+  IN VOID                       *Ppi
+  );
+
+/**
+Register a callback to be called after a minimum delay has occurred.
+
+This service is the single member function of the EFI_DELAYED_DISPATCH_PPI
+
+  @param This            Pointer to the EFI_DELAYED_DISPATCH_PPI instance
+  @param Function        Function to call back
+  @param Context         Context data
+  @param DelayedGroupId  Delayed dispatch request ID the caller will wait on
+  @param Delay           Delay interval
+
+  @retval EFI_SUCCESS               Function successfully loaded
+  @retval EFI_INVALID_PARAMETER     One of the Arguments is not supported
+  @retval EFI_OUT_OF_RESOURCES      No more entries
+
+**/
+
+EFI_STATUS
+EFIAPI
+PeiDelayedDispatchRegister (
+  IN  EFI_DELAYED_DISPATCH_PPI       *This,
+  IN  EFI_DELAYED_DISPATCH_FUNCTION  Function,
+  IN  UINT64                         Context,
+  IN  EFI_GUID                       *DelayedGroupId  OPTIONAL,
+  IN  UINT32                         Delay
+  );
+
+/**
+Function invoked by a PEIM to wait until all specified DelayedGroupId events have been dispatched. The other events
+will continue to dispatch while this process is being paused
+
+  @param This            Pointer to the EFI_DELAYED_DISPATCH_PPI instance
+  @param DelayedGroupId  Delayed dispatch request ID the caller will wait on
+
+  @retval EFI_SUCCESS               Function successfully invoked
+  @retval EFI_INVALID_PARAMETER     One of the Arguments is not supported
+
+**/
+
+EFI_STATUS
+EFIAPI
+PeiDelayedDispatchWaitOnEvent (
+  IN EFI_DELAYED_DISPATCH_PPI  *This,
+  IN EFI_GUID                  DelayedGroupId
   );
 
 #endif

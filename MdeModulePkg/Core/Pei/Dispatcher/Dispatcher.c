@@ -9,6 +9,280 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "PeiMain.h"
 
+EFI_DELAYED_DISPATCH_PPI  mDelayedDispatchPpi  = { PeiDelayedDispatchRegister, PeiDelayedDispatchWaitOnEvent };
+EFI_PEI_PPI_DESCRIPTOR    mDelayedDispatchDesc = {
+  (EFI_PEI_PPI_DESCRIPTOR_PPI | EFI_PEI_PPI_DESCRIPTOR_TERMINATE_LIST),
+  &gEfiPeiDelayedDispatchPpiGuid,
+  &mDelayedDispatchPpi
+};
+
+EFI_PEI_NOTIFY_DESCRIPTOR  mDelayedDispatchNotifyDesc = {
+  EFI_PEI_PPI_DESCRIPTOR_NOTIFY_CALLBACK | EFI_PEI_PPI_DESCRIPTOR_TERMINATE_LIST,
+  &gEfiEndOfPeiSignalPpiGuid,
+  PeiDelayedDispatchOnEndOfPei
+};
+
+/**
+ * Get the DelayedDispatchList from Hob
+ *
+ * @param  None
+ *
+ *
+ * @return DELAYED_DISPATCH_LIST*
+ */
+DELAYED_DISPATCH_LIST *
+GetDelayedDispatchList (
+  )
+{
+  EFI_HOB_GUID_TYPE  *GuidHob;
+
+  GuidHob = GetFirstGuidHob (&gEfiDelayedDispatchListGuid);
+  if (GuidHob == NULL) {
+    DEBUG ((DEBUG_ERROR, "Delayed Dispatch PPI ERROR - Delayed Dispatch Hob not available.\n"));
+    ASSERT (FALSE);
+    return NULL;
+  }
+
+  return (DELAYED_DISPATCH_LIST *)GET_GUID_HOB_DATA (GuidHob);
+}
+
+/**
+ * DelayedDispatchDispatcher
+ *
+ * Delayed Dispach cycle (ie one pass) through each entry, calling functions when their
+ * time has expired.  When DelayedGroupId is specified, if there are any of the specified entries
+ * in the dispatch queue during dispatch, repeat the DelayedDispatch cycle.
+ *
+ * @param DelayedDispatchList  Pointer to dispatch table
+ * @param OPTIONAL             DelayedGroupId used to ensure particular time is met.
+ *
+ * @return BOOLEAN             Has the entry been dispatched
+ */
+BOOLEAN
+DelayedDispatchDispatcher (
+  IN DELAYED_DISPATCH_LIST  *DelayedDispatchList,
+  IN EFI_GUID               DelayedGroupId           OPTIONAL
+  )
+{
+  BOOLEAN                 Dispatched = FALSE;
+  UINT32                  TimeCurrent;
+  UINT32                  MaxDispatchTime;
+  UINTN                   Index;
+  BOOLEAN                 DelayIdPresent;
+  DELAYED_DISPATCH_ENTRY  *Entry;
+
+  DelayIdPresent  = TRUE;
+  MaxDispatchTime = GET_TIME_IN_US () + FixedPcdGet32 (PcdDelayedDispatchCompletionTimeoutUs);
+  while ((DelayedDispatchList->Count > 0) && (DelayIdPresent)) {
+    DelayIdPresent = FALSE;
+
+    // If dispatching is messed up, clear DelayedDispatchList and exit.
+    TimeCurrent =  GET_TIME_IN_US ();
+    if (TimeCurrent > MaxDispatchTime) {
+      DEBUG ((DEBUG_ERROR, "%a - DelayedDispatch Completion timeout!\n", __func__));
+      ASSERT (FALSE);
+      DelayedDispatchList->Count = 0;
+      break;
+    }
+
+    // Check each entry in the table for possible dispatch
+    for (Index = 0; Index < DelayedDispatchList->Count;) {
+      Entry = &(DelayedDispatchList->Entry[Index]);
+      // If DelayedGroupId is present, ensure there is an additional check of the table.
+      if (!IsZeroGuid (&DelayedGroupId)) {
+        if (CompareGuid (&DelayedGroupId, &Entry->DelayedGroupId)) {
+          DelayIdPresent = TRUE;
+        }
+      }
+
+      TimeCurrent =  GET_TIME_IN_US ();
+      if (TimeCurrent >= Entry->DispatchTime) {
+        // Time expired, invoked the function
+        DEBUG ((
+          DEBUG_ERROR,
+          "Delayed dispatch entry %d @ %p, TargetTime=%d, CurrentTime=%d\n",
+          Index,
+          Entry->Function,
+          Entry->DispatchTime,
+          TimeCurrent
+          ));
+        Dispatched     = TRUE;
+        Entry->usDelay = 0;
+        Entry->Function (
+                 &Entry->Context,
+                 &Entry->usDelay
+                 );
+        DEBUG ((DEBUG_ERROR, "Delayed dispatch Function returned delay=%d\n", Entry->usDelay));
+        if (Entry->usDelay == 0) {
+          // NewTime = 0 = delete this entry from the table
+          DelayedDispatchList->Count--;
+          CopyMem (Entry, Entry + 1, sizeof (DELAYED_DISPATCH_ENTRY) * (DelayedDispatchList->Count - Index));
+        } else {
+          if (Entry->usDelay > FixedPcdGet32 (PcdDelayedDispatchMaxDelayUs)) {
+            DEBUG ((DEBUG_ERROR, "%a Illegal new delay %d requested\n", __func__, Entry->usDelay));
+            ASSERT (FALSE);
+            Entry->usDelay = FixedPcdGet32 (PcdDelayedDispatchMaxDelayUs);
+          }
+
+          // NewTime != 0 - update the time from us to Dispatch time
+          Entry->DispatchTime =  GET_TIME_IN_US () + Entry->usDelay;
+          Index++;
+        }
+      } else {
+        Index++;
+      }
+    }
+  }
+
+  return Dispatched;
+}
+
+/**
+Register a callback to be called after a minimum delay has occurred.
+
+  @param This            Pointer to the EFI_DELAYED_DISPATCH_PPI instance
+  @param Function        Function to call back
+  @param Context         Context data
+  @param DelayedGroupId  Delayed dispatch request ID the caller will wait on
+  @param Delay           Delay interval
+
+  @retval EFI_SUCCESS               Function successfully loaded
+  @retval EFI_INVALID_PARAMETER     One of the Arguments is not supported
+  @retval EFI_OUT_OF_RESOURCES      No more entries
+
+**/
+EFI_STATUS
+EFIAPI
+PeiDelayedDispatchRegister (
+  IN  EFI_DELAYED_DISPATCH_PPI       *This,
+  IN  EFI_DELAYED_DISPATCH_FUNCTION  Function,
+  IN  UINT64                         Context,
+  IN  EFI_GUID                       *DelayedGroupId   OPTIONAL,
+  IN  UINT32                         Delay
+  )
+{
+  DELAYED_DISPATCH_LIST   *DelayedDispatchList;
+  DELAYED_DISPATCH_ENTRY  *Entry;
+
+  // Check input parameters
+  if ((Function == NULL) || (Delay > FixedPcdGet32 (PcdDelayedDispatchMaxDelayUs)) || (This == NULL)) {
+    DEBUG ((DEBUG_ERROR, "%a Invalid parameter\n", __func__));
+    return EFI_INVALID_PARAMETER;
+  }
+
+  // Get delayed dispatch table
+  DelayedDispatchList = GetDelayedDispatchList ();
+  if (DelayedDispatchList == NULL) {
+    DEBUG ((DEBUG_ERROR, "%a Unable to locate dispatch table\n", __func__));
+
+    return EFI_UNSUPPORTED;
+  }
+
+  // Check for available entry slots
+  if (DelayedDispatchList->Count >= FixedPcdGet32 (PcdDelayedDispatchMaxEntries)) {
+    ASSERT (DelayedDispatchList->Count < FixedPcdGet32 (PcdDelayedDispatchMaxEntries));
+    DEBUG ((DEBUG_ERROR, "%a Too many entries requested\n", __func__));
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Entry               = &(DelayedDispatchList->Entry[DelayedDispatchList->Count]);
+  Entry->Function     = Function;
+  Entry->Context      = Context;
+  Entry->DispatchTime = GET_TIME_IN_US () + Delay;
+  if ((DelayedGroupId != NULL) && (!IsZeroGuid (DelayedGroupId))) {
+    CopyGuid (&Entry->DelayedGroupId, DelayedGroupId);
+  } else {
+    ZeroMem (&Entry->DelayedGroupId, sizeof (EFI_GUID));
+  }
+
+  Entry->usDelay = Delay;
+  DelayedDispatchList->Count++;
+
+  DEBUG ((DEBUG_INFO, "%a  Adding dispatch Entry\n", __func__));
+  DEBUG ((DEBUG_INFO, "    Requested Delay = %d\n", Delay));
+  DEBUG ((DEBUG_INFO, "    Trigger Time = %d\n", Entry->DispatchTime));
+  DEBUG ((DEBUG_INFO, "    Context = 0x%08lx\n", Entry->Context));
+  DEBUG ((DEBUG_INFO, "    Function = %p\n", Entry->Function));
+  DEBUG ((DEBUG_INFO, "    GuidHandle = %g\n", &(Entry->DelayedGroupId)));
+
+  if (Delay == 0) {
+    // Force early dispatch point
+    DelayedDispatchDispatcher (DelayedDispatchList, gZeroGuid);
+  }
+
+  return EFI_SUCCESS;
+}
+
+/**
+Function invoked by a PEIM to wait until all specified DelayedGroupId events have been dispatched. The other events
+will continue to dispatch while this process is being paused
+
+  @param This           Pointer to the EFI_DELAYED_DISPATCH_PPI instance
+  @param DelayedGroupId       Delayed dispatch request ID the caller will wait on
+
+  @retval EFI_SUCCESS               Function successfully invoked
+  @retval EFI_INVALID_PARAMETER     One of the Arguments is not supported
+
+**/
+EFI_STATUS
+EFIAPI
+PeiDelayedDispatchWaitOnEvent (
+  IN EFI_DELAYED_DISPATCH_PPI  *This,
+  IN EFI_GUID                  DelayedGroupId
+  )
+{
+  DELAYED_DISPATCH_LIST  *DelayedDispatchList;
+
+  // Get delayed dispatch table
+  DelayedDispatchList = GetDelayedDispatchList ();
+  if (DelayedDispatchList == NULL) {
+    return EFI_UNSUPPORTED;
+  }
+
+  if (IsZeroGuid (&DelayedGroupId)) {
+    ASSERT (FALSE);
+    return EFI_INVALID_PARAMETER;
+  }
+
+  DEBUG ((DEBUG_INFO, "Delayed dispatch on %g. Count=%d\n", &DelayedGroupId, DelayedDispatchList->Count));
+  DelayedDispatchDispatcher (DelayedDispatchList, DelayedGroupId);
+  return EFI_SUCCESS;
+}
+
+/**
+  DelayedDispatch End of PEI callback function. Ensure that all of the delayed dispatch
+  entries are complete before exiting PEI.
+
+  @param[in] PeiServices   - Pointer to PEI Services Table.
+  @param[in] NotifyDesc    - Pointer to the descriptor for the Notification event that
+                             caused this function to execute.
+  @param[in] Ppi           - Pointer to the PPI data associated with this function.
+
+  @retval EFI_STATUS       - Always return EFI_SUCCESS
+**/
+EFI_STATUS
+EFIAPI
+PeiDelayedDispatchOnEndOfPei (
+  IN EFI_PEI_SERVICES           **PeiServices,
+  IN EFI_PEI_NOTIFY_DESCRIPTOR  *NotifyDesc,
+  IN VOID                       *Ppi
+  )
+{
+  DELAYED_DISPATCH_LIST  *DelayedDispatchList;
+
+  // Get delayed dispatch table
+  DelayedDispatchList = GetDelayedDispatchList ();
+  if (DelayedDispatchList == NULL) {
+    return EFI_UNSUPPORTED;
+  }
+
+  while (DelayedDispatchList->Count > 0) {
+    DelayedDispatchDispatcher (DelayedDispatchList, gZeroGuid);
+  }
+
+  return EFI_SUCCESS;
+}
+
 /**
 
   Discover all PEIMs and optional Apriori file in one FV. There is at most one
@@ -1426,11 +1700,29 @@ PeiDispatcher (
   EFI_PEI_FILE_HANDLE     SaveCurrentFileHandle;
   EFI_FV_FILE_INFO        FvFileInfo;
   PEI_CORE_FV_HANDLE      *CoreFvHandle;
+  EFI_HOB_GUID_TYPE       *GuidHob;
 
   PeiServices    = (CONST EFI_PEI_SERVICES **)&Private->Ps;
   PeimEntryPoint = NULL;
   PeimFileHandle = NULL;
   EntryPoint     = 0;
+
+  if (Private->DelayedDispatchList == NULL) {
+    GuidHob = GetFirstGuidHob (&gEfiDelayedDispatchListGuid);
+    if (GuidHob != NULL) {
+      Private->DelayedDispatchList = (DELAYED_DISPATCH_LIST *)(GET_GUID_HOB_DATA (GuidHob));
+    } else if ((FixedPcdGet32 (PcdDelayedDispatchMaxEntries)) != 0) {
+      UINT32  TableSize = sizeof (DELAYED_DISPATCH_LIST) + ((FixedPcdGet32 (PcdDelayedDispatchMaxEntries) - 1) * sizeof (DELAYED_DISPATCH_ENTRY));
+      Private->DelayedDispatchList = BuildGuidHob (&gEfiDelayedDispatchListGuid, TableSize);
+      if (Private->DelayedDispatchList != NULL) {
+        ZeroMem (Private->DelayedDispatchList, TableSize);
+        Status = PeiServicesInstallPpi (&mDelayedDispatchDesc);
+        ASSERT_EFI_ERROR (Status);
+        Status = PeiServicesNotifyPpi (&mDelayedDispatchNotifyDesc);
+        ASSERT_EFI_ERROR (Status);
+      }
+    }
+  }
 
   if ((Private->PeiMemoryInstalled) &&
       (PcdGetBool (PcdMigrateTemporaryRamFirmwareVolumes) ||
@@ -1682,6 +1974,14 @@ PeiDispatcher (
             }
           }
         }
+
+        if ((Private->DelayedDispatchList != NULL) &&
+            (Private->DelayedDispatchList->Count > 0))
+        {
+          if (DelayedDispatchDispatcher (Private->DelayedDispatchList, gZeroGuid)) {
+            ProcessDispatchNotifyList (Private);
+          }
+        }
       }
 
       //
@@ -1708,7 +2008,11 @@ PeiDispatcher (
     //  pass. If we did not dispatch a PEIM/FV there is no point in trying again
     //  as it will fail the next time too (nothing has changed).
     //
-  } while (Private->PeimNeedingDispatch && Private->PeimDispatchOnThisPass);
+    // Continue dispatch loop if there are outstanding delay-
+    // dispatch registrations still running.
+  } while (
+           (Private->PeimNeedingDispatch && Private->PeimDispatchOnThisPass) ||
+           ((Private->DelayedDispatchList != NULL) && (Private->DelayedDispatchList->Count > 0)));
 }
 
 /**
