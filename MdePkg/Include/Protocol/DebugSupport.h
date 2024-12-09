@@ -716,7 +716,19 @@ typedef struct {
 #define EXCEPT_LOONGARCH_SXD   16
 #define EXCEPT_LOONGARCH_ASXD  17
 #define EXCEPT_LOONGARCH_FPE   18
+#define EXCEPT_LOONGARCH_WPE   19
+#define EXCEPT_LOONGARCH_BTD   20
+#define EXCEPT_LOONGARCH_BTE   21
+#define EXCEPT_LOONGARCH_GSPR  22
+#define EXCEPT_LOONGARCH_HVC   23
+#define EXCEPT_LOONGARCH_GCXC  24
 #define EXCEPT_LOONGARCH_TBR   64 // For code only, there is no such type in the ISA spec, the TLB refill is defined for an independent exception.
+
+//
+// For coding convenience, define the maximum valid
+// LoongArch exception.
+//
+#define MAX_LOONGARCH_EXCEPTION  64
 
 //
 // LoongArch processor Interrupt types.
@@ -739,7 +751,7 @@ typedef struct {
 // For coding convenience, define the maximum valid
 // LoongArch interrupt.
 //
-#define MAX_LOONGARCH_INTERRUPT  14
+#define MAX_LOONGARCH_INTERRUPT  16
 
 typedef struct {
   UINT64    R0;
