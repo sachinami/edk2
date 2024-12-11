@@ -977,13 +977,7 @@ UsbBusBuildProtocol (
   }
 
   //
-  // Get USB_HC2/USB_HC host controller protocol (EHCI/UHCI).
-  // This is for backward compatibility with EFI 1.x. In UEFI
-  // 2.x, USB_HC2 replaces USB_HC. We will open both USB_HC2
-  // and USB_HC because EHCI driver will install both protocols
-  // (for the same reason). If we don't consume both of them,
-  // the unconsumed one may be opened by others.
-  //
+  // Get USB_HC2 host controller protocol (EHCI/UHCI).
   Status = gBS->OpenProtocol (
                   Controller,
                   &gEfiUsb2HcProtocolGuid,
@@ -993,17 +987,9 @@ UsbBusBuildProtocol (
                   EFI_OPEN_PROTOCOL_BY_DRIVER
                   );
 
-  Status2 = gBS->OpenProtocol (
-                   Controller,
-                   &gEfiUsbHcProtocolGuid,
-                   (VOID **)&(UsbBus->UsbHc),
-                   This->DriverBindingHandle,
-                   Controller,
-                   EFI_OPEN_PROTOCOL_BY_DRIVER
-                   );
 
-  if (EFI_ERROR (Status) && EFI_ERROR (Status2)) {
-    DEBUG ((DEBUG_ERROR, "UsbBusStart: Failed to open USB_HC/USB2_HC - %r\n", Status));
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "UsbBusStart: Failed to open USB2_HC - %r\n", Status));
 
     Status = EFI_DEVICE_ERROR;
     goto CLOSE_HC;
@@ -1110,15 +1096,6 @@ CLOSE_HC:
            );
   }
 
-  if (UsbBus->UsbHc != NULL) {
-    gBS->CloseProtocol (
-           Controller,
-           &gEfiUsbHcProtocolGuid,
-           This->DriverBindingHandle,
-           Controller
-           );
-  }
-
   gBS->CloseProtocol (
          Controller,
          &gEfiDevicePathProtocolGuid,
@@ -1180,7 +1157,6 @@ UsbBusControllerDriverSupported (
   EFI_DEV_PATH_PTR          DevicePathNode;
   EFI_DEVICE_PATH_PROTOCOL  *ParentDevicePath;
   EFI_USB2_HC_PROTOCOL      *Usb2Hc;
-  EFI_USB_HC_PROTOCOL       *UsbHc;
   EFI_STATUS                Status;
 
   //
@@ -1225,45 +1201,18 @@ UsbBusControllerDriverSupported (
   }
 
   if (EFI_ERROR (Status)) {
-    //
-    // If failed to open USB_HC2, fall back to USB_HC
-    //
-    Status = gBS->OpenProtocol (
-                    Controller,
-                    &gEfiUsbHcProtocolGuid,
-                    (VOID **)&UsbHc,
-                    This->DriverBindingHandle,
-                    Controller,
-                    EFI_OPEN_PROTOCOL_BY_DRIVER
-                    );
-    if (Status == EFI_ALREADY_STARTED) {
-      return EFI_SUCCESS;
-    }
-
-    if (EFI_ERROR (Status)) {
-      return Status;
-    }
-
-    //
-    // Close the USB_HC used to perform the supported test
-    //
-    gBS->CloseProtocol (
-           Controller,
-           &gEfiUsbHcProtocolGuid,
-           This->DriverBindingHandle,
-           Controller
-           );
-  } else {
-    //
-    // Close the USB_HC2 used to perform the supported test
-    //
-    gBS->CloseProtocol (
-           Controller,
-           &gEfiUsb2HcProtocolGuid,
-           This->DriverBindingHandle,
-           Controller
-           );
+    return Status;
   }
+
+  //
+  // Close the USB_HC2 used to perform the supported test
+  //
+  gBS->CloseProtocol (
+          Controller,
+          &gEfiUsb2HcProtocolGuid,
+          This->DriverBindingHandle,
+          Controller
+          );
 
   //
   // Open the EFI Device Path protocol needed to perform the supported test
@@ -1541,15 +1490,6 @@ UsbBusControllerDriverStop (
       Status = gBS->CloseProtocol (
                       Controller,
                       &gEfiUsb2HcProtocolGuid,
-                      This->DriverBindingHandle,
-                      Controller
-                      );
-    }
-
-    if (Bus->UsbHc != NULL) {
-      Status = gBS->CloseProtocol (
-                      Controller,
-                      &gEfiUsbHcProtocolGuid,
                       This->DriverBindingHandle,
                       Controller
                       );

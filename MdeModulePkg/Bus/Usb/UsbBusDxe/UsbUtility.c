@@ -486,15 +486,6 @@ UsbOpenHostProtoByChild (
                     Child,
                     EFI_OPEN_PROTOCOL_BY_CHILD_CONTROLLER
                     );
-  } else {
-    Status = gBS->OpenProtocol (
-                    Bus->HostHandle,
-                    &gEfiUsbHcProtocolGuid,
-                    (VOID **)&UsbHc,
-                    mUsbBusDriverBinding.DriverBindingHandle,
-                    Child,
-                    EFI_OPEN_PROTOCOL_BY_CHILD_CONTROLLER
-                    );
   }
 
   return Status;
@@ -517,13 +508,6 @@ UsbCloseHostProtoByChild (
     gBS->CloseProtocol (
            Bus->HostHandle,
            &gEfiUsb2HcProtocolGuid,
-           mUsbBusDriverBinding.DriverBindingHandle,
-           Child
-           );
-  } else {
-    gBS->CloseProtocol (
-           Bus->HostHandle,
-           &gEfiUsbHcProtocolGuid,
            mUsbBusDriverBinding.DriverBindingHandle,
            Child
            );
