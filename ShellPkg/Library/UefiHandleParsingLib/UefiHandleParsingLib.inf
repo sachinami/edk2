@@ -85,7 +85,6 @@
   gEfiUnicodeCollationProtocolGuid                        ## UNDEFINED
   gEfiPciRootBridgeIoProtocolGuid                         ## UNDEFINED
   gEfiPciIoProtocolGuid                                   ## UNDEFINED
-  gEfiScsiPassThruProtocolGuid                            ## UNDEFINED
   gEfiScsiIoProtocolGuid                                  ## UNDEFINED
   gEfiExtScsiPassThruProtocolGuid                         ## UNDEFINED
   gEfiIScsiInitiatorNameProtocolGuid                      ## UNDEFINED

@@ -80,7 +80,6 @@
 #string STR_PCI_IO                #language en-US "PCIIO"
 
 // SCSI
-#string STR_SCSI_PT               #language en-US "SCSIPassThru"
 #string STR_SCSI_IO               #language en-US "SCSIIO"
 #string STR_SCSI_PT_EXT           #language en-US "ExtendedSCSIPassThru"
 
