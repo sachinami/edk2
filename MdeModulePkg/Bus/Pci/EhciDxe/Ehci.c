@@ -51,7 +51,7 @@ EFI_DRIVER_BINDING_PROTOCOL
 /**
   Retrieves the capability of root hub ports.
 
-  @param  This                  This EFI_USB_HC_PROTOCOL instance.
+  @param  This                  This EFI_USB2_HC_PROTOCOL instance.
   @param  MaxSpeed              Max speed supported by the controller.
   @param  PortNumber            Number of the root hub ports.
   @param  Is64BitCapable        Whether the controller supports 64-bit memory
