@@ -232,41 +232,6 @@ SCSIBusDriverBindingSupported (
     }
   }
 
-  //
-  // Come here in 2 condition:
-  // 1. ExtPassThru doesn't exist.
-  // 2. ExtPassThru exists but RemainingDevicePath is invalid.
-  //
-  Status = gBS->OpenProtocol (
-                  Controller,
-                  &gEfiScsiPassThruProtocolGuid,
-                  (VOID **)&PassThru,
-                  This->DriverBindingHandle,
-                  Controller,
-                  EFI_OPEN_PROTOCOL_BY_DRIVER
-                  );
-
-  if (Status == EFI_ALREADY_STARTED) {
-    return EFI_SUCCESS;
-  }
-
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  //
-  // Test RemainingDevicePath is valid or not.
-  //
-  if ((RemainingDevicePath != NULL) && !IsDevicePathEnd (RemainingDevicePath)) {
-    Status = PassThru->GetTargetLun (PassThru, RemainingDevicePath, &ScsiTargetId.ScsiId.Scsi, &Lun);
-  }
-
-  gBS->CloseProtocol (
-         Controller,
-         &gEfiScsiPassThruProtocolGuid,
-         This->DriverBindingHandle,
-         Controller
-         );
   return Status;
 }
 
@@ -342,11 +307,6 @@ SCSIBusDriverBindingStart (
     ParentDevicePath
     );
 
-  //
-  // To keep backward compatibility, UEFI ExtPassThru Protocol is supported as well as
-  // EFI PassThru Protocol. From priority perspective, ExtPassThru Protocol is firstly
-  // tried to open on host controller handle. If fails, then PassThru Protocol is tried instead.
-  //
   Status = gBS->OpenProtocol (
                   Controller,
                   &gEfiExtScsiPassThruProtocolGuid,
@@ -401,7 +361,7 @@ SCSIBusDriverBindingStart (
 
   if (Status != EFI_ALREADY_STARTED) {
     //
-    // Go through here means either ExtPassThru or PassThru Protocol is successfully opened
+    // Go through here means either ExtPassThru Protocol is successfully opened
     // on this handle for this time. Then construct Host controller private data.
     //
     ScsiBusDev = NULL;
@@ -1234,15 +1194,6 @@ ScsiScanCreateDevice (
              Controller,
              &gEfiExtScsiPassThruProtocolGuid,
              (VOID **)&(ScsiBusDev->ExtScsiInterface),
-             This->DriverBindingHandle,
-             ScsiIoDevice->Handle,
-             EFI_OPEN_PROTOCOL_BY_CHILD_CONTROLLER
-             );
-    } else {
-      gBS->OpenProtocol (
-             Controller,
-             &gEfiScsiPassThruProtocolGuid,
-             (VOID **)&(ScsiBusDev->ScsiInterface),
              This->DriverBindingHandle,
              ScsiIoDevice->Handle,
              EFI_OPEN_PROTOCOL_BY_CHILD_CONTROLLER

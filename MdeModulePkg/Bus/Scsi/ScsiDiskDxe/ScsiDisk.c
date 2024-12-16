@@ -5855,23 +5855,12 @@ DetermineInstallBlockIo (
   EFI_EXT_SCSI_PASS_THRU_PROTOCOL  *ExtScsiPassThru;
 
   //
-  // Firstly, check if ExtScsiPassThru Protocol parent handle exists. If existence,
+  // Check if ExtScsiPassThru Protocol parent handle exists. If yes,
   // check its attribute, logic or physical.
   //
   ExtScsiPassThru = (EFI_EXT_SCSI_PASS_THRU_PROTOCOL *)GetParentProtocol (&gEfiExtScsiPassThruProtocolGuid, ChildHandle);
   if (ExtScsiPassThru != NULL) {
     if ((ExtScsiPassThru->Mode->Attributes & EFI_SCSI_PASS_THRU_ATTRIBUTES_LOGICAL) != 0) {
-      return TRUE;
-    }
-  }
-
-  //
-  // Secondly, check if ScsiPassThru Protocol parent handle exists. If existence,
-  // check its attribute, logic or physical.
-  //
-  ScsiPassThru = (EFI_SCSI_PASS_THRU_PROTOCOL *)GetParentProtocol (&gEfiScsiPassThruProtocolGuid, ChildHandle);
-  if (ScsiPassThru != NULL) {
-    if ((ScsiPassThru->Mode->Attributes & EFI_SCSI_PASS_THRU_ATTRIBUTES_LOGICAL) != 0) {
       return TRUE;
     }
   }
