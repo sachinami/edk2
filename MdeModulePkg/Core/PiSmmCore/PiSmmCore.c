@@ -675,6 +675,7 @@ SmmEntryPoint (
   EFI_SMM_COMMUNICATE_HEADER    *LegacyCommunicateHeader;
   BOOLEAN                       InLegacyBoot;
   BOOLEAN                       IsOverlapped;
+  BOOLEAN                       IsOverUnderflow;
   VOID                          *CommunicationBuffer;
   UINTN                         BufferSize;
   EFI_GUID                      *CommGuid;
@@ -730,12 +731,31 @@ SmmEntryPoint (
                        (UINT8 *)gSmmCorePrivate,
                        sizeof (*gSmmCorePrivate)
                        );
+
+      // Find Mm Communicate Header type before validating it
+      CommGuid = &((EFI_MM_COMMUNICATE_HEADER_V3 *)CommunicationBuffer)->HeaderGuid;
+      //
+      // Check if the signature matches EFI_MM_COMMUNICATE_HEADER_V3 definition
+      //
+      if (CompareGuid (CommGuid, &gEfiMmCommunicateHeaderV3Guid)) {
+        CommunicateHeader = (EFI_MM_COMMUNICATE_HEADER_V3 *)CommunicationBuffer;
+        CommGuid          = &CommunicateHeader->MessageGuid;
+        CommData          = CommunicateHeader->MessageData;
+        CommHeaderSize    = sizeof (EFI_MM_COMMUNICATE_HEADER_V3);
+      } else {
+        LegacyCommunicateHeader = (EFI_SMM_COMMUNICATE_HEADER *)CommunicationBuffer;
+        CommGuid                = &LegacyCommunicateHeader->HeaderGuid;
+        CommData                = LegacyCommunicateHeader->Data;
+        CommHeaderSize          = OFFSET_OF (EFI_SMM_COMMUNICATE_HEADER, Data);
+      }
+
       //
       // Check for over or underflows
       //
+      IsOverUnderflow = EFI_ERROR (SafeUintnSub (BufferSize, CommHeaderSize, &BufferSize));
+
       if (!SmmIsBufferOutsideSmmValid ((UINTN)CommunicationBuffer, BufferSize) ||
-          IsOverlapped || (BufferSize < sizeof (EFI_SMM_COMMUNICATE_HEADER)))
-      {
+          IsOverlapped || IsOverUnderflow) {
         //
         // If CommunicationBuffer is not in valid address scope,
         // or there is overlap between gSmmCorePrivate and CommunicationBuffer,
@@ -745,32 +765,6 @@ SmmEntryPoint (
         gSmmCorePrivate->CommunicationBuffer = NULL;
         gSmmCorePrivate->ReturnStatus        = EFI_ACCESS_DENIED;
       } else {
-        CommGuid = &((EFI_MM_COMMUNICATE_HEADER_V3 *)CommunicationBuffer)->HeaderGuid;
-        //
-        // Check if the signature matches EFI_MM_COMMUNICATE_HEADER_V3 definition
-        //
-        if (CompareGuid (CommGuid, &gEfiMmCommunicateHeaderV3Guid)) {
-          //
-          // If so, need to make sure the size is at least the size of the header
-          //
-          if (BufferSize < sizeof (EFI_MM_COMMUNICATE_HEADER_V3)) {
-            gSmmCorePrivate->CommunicationBuffer = NULL;
-            gSmmCorePrivate->ReturnStatus        = EFI_ACCESS_DENIED;
-            goto AsyncSmi;
-          }
-
-          CommunicateHeader = (EFI_MM_COMMUNICATE_HEADER_V3 *)CommunicationBuffer;
-          CommGuid          = &CommunicateHeader->MessageGuid;
-          CommData          = CommunicateHeader->MessageData;
-          CommHeaderSize    = sizeof (EFI_MM_COMMUNICATE_HEADER_V3);
-        } else {
-          LegacyCommunicateHeader = (EFI_SMM_COMMUNICATE_HEADER *)CommunicationBuffer;
-          CommGuid                = &LegacyCommunicateHeader->HeaderGuid;
-          CommData                = LegacyCommunicateHeader->Data;
-          CommHeaderSize          = OFFSET_OF (EFI_SMM_COMMUNICATE_HEADER, Data);
-        }
-
-        BufferSize -= CommHeaderSize;
         Status      = SmiManage (
                         CommGuid,
                         NULL,
@@ -788,7 +782,6 @@ SmmEntryPoint (
     }
   }
 
-AsyncSmi:
   //
   // Process Asynchronous SMI sources
   //
